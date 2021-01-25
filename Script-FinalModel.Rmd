@@ -1,0 +1,443 @@
+---
+title: "Project Script"
+author: "Jiaxuan Cai"
+date: "2020/12/14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Introduction
+## Background
+## Goal
+Predict grade
+## Dataset
+```{r}
+set.seed(42)
+d2=read.table("D:/Learning/ERG/project/student-por.csv",sep=";",head=TRUE)
+summary(d2)
+```
+### 1.1 Types of Data
+内容：按类型分别介绍（qualitative&quantitative, 实际意义）
+解释为何用G3做response并排除G1G2：最后一年成绩最重要&虽然G1G2和G3高度相关，但它们和G3一样都是成绩，受predictors影响，用作自变量虽然会提高精度但预测意义不大
+Attributes for both student-mat.csv (Math course) and student-por.csv (Portuguese language course) datasets:
+1 school - student's school (binary: 'GP' - Gabriel Pereira or 'MS' - Mousinho da Silveira)
+2 sex - student's sex (binary: 'F' - female or 'M' - male)
+3 age - student's age (numeric: from 15 to 22)
+4 address - student's home address type (binary: 'U' - urban or 'R' - rural)
+5 famsize - family size (binary: 'LE3' - less or equal to 3 or 'GT3' - greater than 3)
+6 Pstatus - parent's cohabitation status (binary: 'T' - living together or 'A' - apart)
+7 Medu - mother's education (numeric: 0 - none, 1 - primary education (4th grade), 2 â€“ 5th to 9th grade, 3 â€“ secondary education or 4 â€“ higher education)
+8 Fedu - father's education (numeric: 0 - none, 1 - primary education (4th grade), 2 â€“ 5th to 9th grade, 3 â€“ secondary education or 4 â€“ higher education)
+9 Mjob - mother's job (nominal: 'teacher', 'health' care related, civil 'services' (e.g. administrative or police), 'at_home' or 'other')
+10 Fjob - father's job (nominal: 'teacher', 'health' care related, civil 'services' (e.g. administrative or police), 'at_home' or 'other')
+11 reason - reason to choose this school (nominal: close to 'home', school 'reputation', 'course' preference or 'other')
+12 guardian - student's guardian (nominal: 'mother', 'father' or 'other')
+13 traveltime - home to school travel time (numeric: 1 - <15 min., 2 - 15 to 30 min., 3 - 30 min. to 1 hour, or 4 - >1 hour)
+14 studytime - weekly study time (numeric: 1 - <2 hours, 2 - 2 to 5 hours, 3 - 5 to 10 hours, or 4 - >10 hours)
+15 failures - number of past class failures (numeric: n if 1<=n<3, else 4)
+16 schoolsup - extra educational support (binary: yes or no)
+17 famsup - family educational support (binary: yes or no)
+18 paid - extra paid classes within the course subject (Math or Portuguese) (binary: yes or no)
+19 activities - extra-curricular activities (binary: yes or no)
+20 nursery - attended nursery school (binary: yes or no)
+21 higher - wants to take higher education (binary: yes or no)
+22 internet - Internet access at home (binary: yes or no)
+23 romantic - with a romantic relationship (binary: yes or no)
+24 famrel - quality of family relationships (numeric: from 1 - very bad to 5 - excellent)
+25 freetime - free time after school (numeric: from 1 - very low to 5 - very high)
+26 goout - going out with friends (numeric: from 1 - very low to 5 - very high)
+27 Dalc - workday alcohol consumption (numeric: from 1 - very low to 5 - very high)
+28 Walc - weekend alcohol consumption (numeric: from 1 - very low to 5 - very high)
+29 health - current health status (numeric: from 1 - very bad to 5 - very good)
+30 absences - number of school absences (numeric: from 0 to 93)
+
+ these grades are related with the course subject, Math or Portuguese:
+31 G1 - first period grade (numeric: from 0 to 20)
+31 G2 - second period grade (numeric: from 0 to 20)
+32 G3 - final grade (numeric: from 0 to 20, output target)
+
+```{r,warning=FALSE}
+library(caret) #read the data 
+d2=read.table("D:/Learning/ERG/project/student-por.csv",sep=";",head=TRUE)
+summary(d2)
+```
+
+### 1.2 看是否有左偏或右偏
+```{r}
+set.seed(42)
+a=hist(d2$G3,xlab="3rd Year Grade",main="Distribution of 3rd Year Grade")
+xfit=seq(min(d2$G3),max(d2$G3),length=200) 
+yfit=dnorm(xfit,mean=mean(d2$G3),sd=sd(d2$G3)) 
+yfit=yfit*diff(a$mids[1:2])*length(d2$G3) 
+lines(xfit, yfit, col="blue", lwd=2)
+```
+
+没有严重的左偏或右偏，比较贴近正态分布，不作调整
+
+### 1.3 Collinearity
+Some are highly correlated, like Medu and Fedu, which is 0.65. Since collinearity will cause problems.（举例） Thus, feature selection may be necessary.
+```{r}
+library(psych)
+cor(subset(d2,select=c(age,Medu,Fedu,traveltime,studytime,failures,famrel,freetime,goout,Dalc,Walc,health,absences)))
+pairs.panels(subset(d2,select=c(age,Medu,Fedu,traveltime,studytime,failures,famrel,freetime,goout,Dalc,Walc,health,absences)))
+```
+
+# 2. Build the Model
+## 0. Data Processing
+### 0.0 Split the Data
+The data is first split into training set and test set by createDataPartition(). Training set contains 75% of total data (488), while the test set contains the rest of data (161).
+```{r}
+#split the data set
+set.seed(42)
+SP_idx = createDataPartition(d2$G3,p=0.75,list=FALSE) # Final grade
+SP_trn = d2[SP_idx,-c(31,32)]
+SP_tst = d2[-SP_idx,-c(31,32)]
+```
+
+
+### 0.1 Remove the missing data
+```{r}
+which(is.na(SP_trn))
+```
+
+没有缺失点
+
+## 2. Model
+### 2.1 Linear Regression Model
+Firstly, we tried multiple linear regression. This is a very simple approach which is easy to explain. Compared to other method, it is relatively dull. However, it can bring us a general picture of the dataset and it also can be improved in many ways. That is why we consider linear regression model at the very beginning.
+
+```{r}
+#linear Regression
+por_LinearFit=lm(G3~.,data=SP_trn)
+summary(por_LinearFit)
+par(mfrow=c(2,2))
+plot(por_LinearFit)
+```
+
+
+```{r warning=FALSE}
+#test MSE
+library(boot)
+#pred_lm=predict(por_LinearFit,SP_tst)
+cv.error.10=rep(0,10)
+for (i in 1:10){
+  por_LinearFitCV=glm(G3~.,data=SP_trn)
+  cv.error.10[i]=cv.glm(SP_trn,por_LinearFitCV,K=10)$delta[1]
+}
+mean(cv.error.10)
+```
+
+### 2.2 Feature Selection
+Best Model Selection:
+
+The data set has a lot variables (there are 33 variables in total). We need to select the most significant variables to predict the model. Still, we want to predict a student’s final grade on the basis of various statistics of his. Now we apply the best subset selection approach to the data. After we divided the data into the train data set and the test data set, we use “regsubsets()” to select the most important variables we need from all 30 variables (G1,G2 are excluded because they are previous exam grades; G3 is the dependent variable).
+
+```{r}
+library(leaps)
+library(ISLR)
+set.seed(42)
+reg_full = regsubsets(G3~.,data=SP_trn,nvmax=30)
+reg_summary = summary(reg_full)
+
+par(mfrow=c(2,2))
+plot(reg_summary$rss,xlab="Number of Variables ",ylab="RSS",type="l")
+plot(reg_summary$adjr2 ,xlab="Number of Variables ",ylab="Adjusted RSq",type="l") 
+p1 = which.max(reg_summary$adjr2) # returns 8
+points(p1,reg_summary$adjr2[p1], col="red",cex=2,pch=20) # add maximum point
+
+plot(reg_summary$cp ,xlab="Number of Variables ",ylab="Cp", type='l')
+p2 = which.min(reg_summary$cp ) #returns 3
+points(p2,reg_summary$cp[p2],col="red",cex=2,pch=20) 
+
+plot(reg_summary$bic ,xlab="Number of Variables ",ylab="BIC", type='l')
+p3 = which.min(reg_summary$bic) #returns 3
+points(p3,reg_summary$bic[p3],col="red",cex=2,pch=20) 
+```
+RSS and Adjusted R square don’t show a significantly good point for we to choose. The number of variables indicated by BIC is so small that it is not good for our analysis. We want more information involved in this analysis. As a result, we choose Cp as the indicator. Apply Cp as indicator, we select 13 variables for prediction, the coefficients are shown as follows:
+```{r}
+coef(reg_full,13)
+```
+
+```{r warning=FALSE}
+#test MSE
+cv.error.10=rep(0,10)
+for (i in 1:10){
+  por_LinearFitCV=glm(G3~school+ sex +Fedu+ Fjob+guardian+ studytime+failures+schoolsup+nursery+ higher+ Dalc+ health+ absences,data=SP_trn)
+  cv.error.10[i]=cv.glm(SP_trn,por_LinearFitCV,K=10)$delta[1]
+}
+mean(cv.error.10)
+```
+
+
+Lasso Method
+The lasso regression is to have the concentric circles are tangent to the restricted region in a intuitive view.
+
+# lasso图
+```{r}
+library(glmnet)
+library(Matrix)
+x = data.matrix(SP_trn[,-31])
+y = SP_trn$G3
+lasso.cv.out=cv.glmnet(x,y,alpha=1, lambda = 10^seq(1,-2,length = 100),standardize = TRUE, nfolds = 10)
+
+plot(lasso.cv.out)
+lasso.bestlamda=lasso.cv.out$lambda.min#best lambda
+
+lasso.mod=glmnet(x,y,alpha=1,lambda=lasso.bestlamda)
+summary(lasso.mod)
+lasso.pred=predict(lasso.mod,x)
+lasso.val.mse=mean((lasso.pred-y)^2)#val MSE
+(lasso.pred = predict(lasso.mod,type="coefficients",s=lasso.bestlamda))
+
+lasso.mod = glmnet(x,y,alpha=1,lambda=lasso.bestlamda)
+print(lasso.val.mse)
+```
+
+### Lasso MSE
+```{r warning=FALSE}
+library(splines)
+set.seed(42)
+folds=createFolds(y=SP_trn$G3,k=10)
+MSECV=rep(0,10)
+for (i  in 1:10){
+  fold_test=SP_trn[folds[[i]],]   #取folds[[i]]作为测试集
+  fold_train= SP_trn[-folds[[i]],]   # 剩下的数据作为训练集
+  x = data.matrix(fold_train[,-31])
+  newX=data.matrix(fold_test[,-31])
+  y = fold_train$G3
+  fold_pre=glmnet(x,y,alpha=1,lambda=lasso.bestlamda)
+  fold_predict=predict(fold_pre,type='response',newX)
+  MSECV[i]=mean((fold_test$G3-fold_predict)^2)
+}
+  MSE=mean(MSECV)
+MSE
+```
+
+Thus, we can see that lasso didn't give a better MSE than best subset selection. We believe it has something to do with the collinearity we detected before. Especially the strong correlation between Fedu and Medu. We decided to use best subset selection to do feature selection. 
+
+The variables we choose includes: school, sex, Fedu, Fjob, guardian, studytime, failures, schoolsup, nursery, higher, Dalc, health and absences as our independent variables. So the key conclusion we can get from this model selection is that:
+<br>
+1.A better school can provide a better education environment. If a school can provide extra educational support, students’Portuguese scores will be 1.55 higher than those students who study in a school without extra support.
+
+2.Male students perform worse than female students on Portuguese. On average, female students get 0.69 point more than male students.
+
+3.Family background matters. Father’s education, father’s job, the guardian of the student all have significant influence on the students’performance. 
+
+4.The students’academic backgrounds matters. If a student failed one course before, his score will be reduced by 1.38 on average.
+
+5.Students should go to take the course in the classroom. If a student is absent from one lesson, his score will be 0.064 point lower than those who does not absent from the lesson.
+
+6.Students’health status matters. The healthier the student, the higher score he can get in the final exam.
+The MSE given by cross validation is 7.831531.
+
+
+### 2.3 High Leverage Point Removed
+```{r warning=FALSE}
+set.seed(42)
+bestSubset=SP_trn[,c(1,2,8,10,12,14,15,16,20,21,27,29,30,31)]
+por_FitSelected=lm(G3~.,data=bestSubset)
+#cv.error.10=rep(0,10)
+#for (i in 1:10){
+#  por_LinearFitCV=glm(G3~.,data=bestSubset)
+#  cv.error.10[i]=cv.glm(bestSubset,por_LinearFitCV,K=10)$delta[1]
+#}
+#mean(cv.error.10)
+
+HighLeverage=cooks.distance(por_FitSelected)>(4/nrow(d2))
+LargeResiduals <- rstudent(por_FitSelected)>3
+d2New=bestSubset[!HighLeverage&!LargeResiduals,]
+por_woHighLeverage=lm(G3~.,data=d2New)
+```
+
+```{r warning=FALSE}
+#test MSE
+library(boot)
+#pred_lm=predict(por_LinearFit,SP_tst)
+cv.error.10=rep(0,10)
+for (i in 1:10){
+  por_LinearFitCV=glm(G3~.,data=d2New)
+  cv.error.10[i]=cv.glm(d2New,por_LinearFitCV,K=10)$delta[1]
+}
+mean(cv.error.10)
+```
+
+### 2.4 Moving beyond linearity
+Linear model have significant limitations because of the existence of nonlinearity. After that, we relaxed the linear assumption. We tried spline and generalized additive models on the quantitative predictors having significant relationship with the response.
+```{r warning=FALSE}
+library(splines)
+folds=createFolds(y=d2New$G3,k=10)
+df=rep(0,12)
+MSE=rep(0,12)
+MSECV=rep(0,10)
+for (i  in 1:12){
+  for (j  in 1:10){
+    fold_test=d2New[folds[[j]],]   #取folds[[i]]作为测试集
+    fold_train= d2New[-folds[[j]],]   # 剩下的数据作为训练集
+    fold_pre=lm(G3~.+ns(studytime,df=i)+ns(failures,df=i)+ns(Dalc,df=i)+ns(absences,df=i),data=fold_train)
+    fold_predict=predict(fold_pre,type='response',newdata=fold_test)
+    MSECV[j]=mean((fold_test$G3-fold_predict)^2)
+  }
+  df[i]=i
+  MSE[i]=mean(MSECV)
+}
+plot(data.frame(df,MSE))
+```
+
+From the result we saw that MSE is the lowest when degree of freedom is 1, which is the linear model. Thus, spline will not increase the accuracy of the model.
+
+GAM:
+
+```{r warning=FALSE}
+set.seed(42)
+library(gam)
+require(caret)
+folds=createFolds(y=d2New$G3,k=10)
+df=rep(0,12)
+MSE=rep(0,12)
+MSECV=rep(0,10)
+for (i  in 1:12){
+  for (j  in 1:10){
+    fold_test=d2New[folds[[j]],]   #取folds[[i]]作为测试集
+    fold_train=d2New[-folds[[j]],]   # 剩下的数据作为训练集
+    fold_pre=gam(G3~.+s(studytime,i)+s(failures,df=i)+s(Dalc,df=i)+s(absences,df=i),data=fold_train)
+    fold_predict=predict(fold_pre,type='response',newdata=fold_test)
+    MSECV[j]=mean((fold_test$G3-fold_predict)^2)
+  }
+  df[i]=i
+  MSE[i]=mean(MSECV)
+}
+plot(data.frame(df,MSE))
+min(MSE)
+```
+
+```{r}
+par(mfrow=c(2,2))
+gam1=gam(G3~.+s(studytime,2)+s(failures,2)+s(Dalc,2)+s(absences,2),data=bestSubset)
+plot(gam1)
+```
+
+From the result we saw that MSE is the lowest when degree of freedom is 2, which is the linear model. Thus, GAM can effectively increase the accuracy of the model.
+
+
+### 2.5 Regression Tree
+Now we apply the tree-based method. Although the method is not as competitive in prediction accuracy as previous methods, it is useful for interpreting the decision making process. The method first divide the Students Performance data into several regions (leaves), then it provides an estimated response to each of the leaf.
+
+```{r,warning=FALSE}
+library(tree)
+tree.SP = tree(bestSubset$G3~.,bestSubset)
+summary(tree.SP)
+```
+
+6 variables are used for constructing the tree: failures, Dalc, studytime, Fedu, absences and traveltime. The top split assigns observations having failures<0.5 to the left branch. Therefore, the number of students' failures should be considered as the most significant variable for his final grade. Then the branches are split by workday alcohol consumption as well as number of school absences.
+
+```{r}
+plot(tree.SP)
+text(tree.SP, pretty=0)
+```
+
+
+```{r,warning=FALSE}
+set.seed(42)
+cv.SP=cv.tree(tree.SP)
+plot(cv.SP$size,cv.SP$dev,type="b")
+```
+In this case, the tree with size=8 is selected by cross-validation. Now prune the tree by best=2.
+```{r}
+prune.SP=prune.tree(tree.SP,best=8)
+plot(prune.SP)
+text(prune.SP,pretty=0)
+```
+The prediction is only determined by the number of past class failures. The student will obtain 12.520 scores if he has no failure in the previous class, and 8.605 if he has failures before.
+
+
+```{r,warning=FALSE}
+set.seed(42)
+K = 10
+foldsum = nrow(bestSubset)%/%K
+random.tree = bestSubset[sample(foldsum*K),]
+beg.fold = seq(from=1,to=(1+foldsum*(K-1)),by=foldsum)
+end.fold = beg.fold+foldsum-1
+SP.fold = data.frame(beg.fold,end.fold)
+cv.error.10=numeric(10)
+for(i in 1:K){
+  tree.cv = random.tree[SP.fold$beg.fold[i]:SP.fold$end.fold[i],]
+  yhat.cv=predict(prune.SP, newdata=tree.cv)
+  cv.error.10[i]=mean((yhat.cv-tree.cv$G3)^2)
+}
+mean(cv.error.10)
+```
+```{r,warning=FALSE}
+set.seed(42)
+K = 10
+foldsum = nrow(bestSubset)%/%K
+random.tree = bestSubset[sample(foldsum*K),]
+beg.fold = seq(from=1,to=(1+foldsum*(K-1)),by=foldsum)
+end.fold = beg.fold+foldsum-1
+SP.fold = data.frame(beg.fold,end.fold)
+cv.error.10=numeric(10)
+for(i in 1:K){
+  tree.cv = random.tree[SP.fold$beg.fold[i]:SP.fold$end.fold[i],]
+  yhat.cv=predict(tree.SP, newdata=tree.cv)
+  cv.error.10[i]=mean((yhat.cv-tree.cv$G3)^2)
+}
+mean(cv.error.10)
+```
+
+```{r,warning=FALSE}
+set.seed(42)
+K = 10
+foldsum = nrow(bestSubset)%/%K
+beg.fold = seq(from=1,to=(1+foldsum*(K-1)),by=foldsum)
+end.fold = beg.fold+foldsum-1
+SP.fold = data.frame(beg.fold,end.fold)
+cv.error.10=numeric(10)
+for(i in 1:K){
+  tree.cv = random.tree[SP.fold$beg.fold[i]:SP.fold$end.fold[i],]
+  yhat.cv=predict(prune.SP, newdata=tree.cv)
+  cv.error.10[i]=mean((yhat.cv-tree.cv$G3)^2)
+}
+mean(cv.error.10)
+```
+
+The cross validation MSE for un-pruned tree is 7.197658.
+The cross validation MSE for pruned tree is 7.315507.
+
+
+The CV MSE of pruned tree is larger than that of un-pruned tree. In conclusion, it is better to use the un-pruned tree, whose test MSE is 6.8009.The selected 6 variables are failures, Dalc, studytime, Fedu, absences and traveltime, while the most significant variable is the time of failure in previous classes.
+From the original tree, we can deduce that the student will obtain higher scores if he have less failures in the past classes, consume less alchol and attend their classes timely.
+
+### Final Model
+### 最后选择的model是feature selection之后，去掉high leverage point然后再用GAM
+
+```{r}
+final=gam(G3~.+s(studytime,2)+s(failures,df=2)+s(Dalc,df=2)+s(absences,df=2),data=d2New)
+pred_Interaction=predict(final,SP_tst)
+MSE=mean((SP_tst$G3-pred_Interaction)^2)
+MSE
+```
+
+```{r}
+preds=predict(final,SP_tst)
+RSS=sum((SP_tst$G3-preds)^2)
+TSS=sum((SP_tst$G3-mean(SP_tst$G3))^2)
+1-(RSS/TSS)
+```
+
+# 3. Result & Discussion
+Conclusion 
+In this project, our groups attempts to predict the students’ final grade through building different models. Among the total data set containing 649 samples, 75% of which are selected as training data, while 25% are selected as test data. The criteria for the model is the test mean square error (MSE). The model that has lowest MSE given by cross-validation is selected as the best model. 
+
+During the “materials and methods” part, we have used several different attempts to estimate the variation of students’ final grade. We first apply multiple linear regression to get some basic knowledge of the dataset as well as a standard of comparison, which is the most basic approach. Then, we use best model selection and lasso model to add a shrinkage term to do feature selection, through this we reduced the flexibility of the model. The best model selection performed better than lasso in feature selection. We then use the subset of features based on the best model selection. Thirdly, we removed high leverage points we observed from the residual plot, it significantly reduced the MSE. Then, we use spline and generalized additive models. It turns out that GAM with degree equal to 2 gives the better result. Finally we use tree regression to illustrate the regression process. Since it couldn't give a better result than the GAM model, we abandoned this model.
+
+Finally, we chose was the GAM model as the best approach and the whole procedure is as followed: 
+1. we do feature selection using the best subset selection approach. In this step, we successfully diminished collinearity. Also, considering the large number of variables, it can handle the problem of overfitting. uring the process, cross-validation is applied to derive the best size of features.As the result of shrinking, the simplified model uses school, sex, address, Medu, Fedu, studytime, failures, schoolsup, nursery, higher, romantic, freetime, Dalc, health and absences as parameters. 
+2. Then we fitted linear model again to remove high leverage points, which reduced variability on the both ends of the regression model. 
+3. We use the dataset with seleced features and high leverage point removed to fit the GAM model with degree=2. 
+4. We used the test dataset for the first time to calculate the final test MSE. 
+
+
+Limitation
+The major limitation is that the size of data set is relatively small, since it only contains 649 samples. As a result, both training and test MSE are quite large. On the other hand, to improve the prediction, we suggest that instead of using linear regression directly, it would be better for researchers to separate the students’ scores into different classes (e.g. A, B, C, D, E) and predict the class through classification. While presented by classes, the result can better visualize students’ performance. 
